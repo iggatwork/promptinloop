@@ -373,7 +373,7 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
 
     # First, use additional_info to focus on the right company
     if additional_info:
-        focus_prompt = f"Given the company name '{company_name}' and the following reference or link: '{additional_info}', extract any relevant information about the company and use it to help identify and focus on the correct company for further research. Summarize what you find and clarify if the reference is useful for distinguishing the company from others with similar names."
+        focus_prompt = f"Given the company name '{company_name}' and the following reference or link: '{additional_info}', extract any relevant information about the company and use it to help identify and focus on the correct company for further research. Summarize what you find and clarify if the reference is useful for distinguishing the company from others with similar names. If there is not an exact match and there are multiple companies with similar names, provide a list of these company names."
         retries = 0
         while retries < max_retries:
             try:
@@ -415,9 +415,9 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
         return prompt
 
     prompts = {
-        "Company_name": with_context(f"What is the full name of the company known as {company_name}? If there is not an exact match and there are multiple companies with similar names, provide a list of these comapnynames."),
-        "Country": with_context(f"In which country is {company_name} headquartered? Provide only the country name if known, otherwise 'Unknown'."),
-        "Website": with_context(f"What is the official website of {company_name}? Provide the URL only."),
+        "Company_name": with_context(f"What is the full name of the company known as {company_name}?, provide only the exact name if known, otherwise 'Unknown'. Do not add explanations here."),
+        "Country": with_context(f"In which country is {company_name} headquartered? Provide only the country name if known, otherwise 'Unknown'. Do not add explanations here."),
+        "Website": with_context(f"What is the official website of {company_name}? Provide the URL only if known, otherwise 'Unknown'. Do not add explanations here."),
         "HasElectronicInhisproducts": with_context(f"Does {company_name} produce, sell, or integrate electronics in their products? Answer only 'Yes' or 'No'. Do not add explanations here."),
         "DoOutsourceElectronicManufacturing": with_context(f"Does {company_name} outsource any electronic manufacturing work? Answer only 'Yes' or 'No'. Do not add explanations here."),
         "DoOutsourceElectronicR&D": with_context(f"Does {company_name} outsource any electronic R&D activities (research, prototyping, testing)? Answer only 'Yes' or 'No'. Do not add explanations here."),
