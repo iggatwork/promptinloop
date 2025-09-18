@@ -40,6 +40,7 @@ The script will:
 When you run `python LookinLoop.py`, a file selection menu will appear in your terminal. Use this menu to select an EXCEL file where a list of company_names exist:
 - Choose output filename or use default
 - Select the column on the file that states the company_name or the variable you need to include in your prompt
+- Select a secondary column on the file that provides a link or a context to refine the prompt consultation
 - Determine how many rows to process
 
 
