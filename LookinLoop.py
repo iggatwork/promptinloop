@@ -361,39 +361,78 @@ def validate_output_path(filepath):
     except Exception as e:
         return False, str(e)
 
-def get_company_info(client, company_name, rate_limiter):
-    """Get detailed company information using Groq API with rate limiting"""
-    model = "llama-3.1-8b-instant"  # Use the fastest model consistently
-    
-    # System prompt to improve context
-    system_prompt = """You are a business analyst tasked with researching companies in healthcare sector. 
-    Provide accurate, concise information based on available data. 
-    If information is not available or uncertain, state that clearly."""
-    
-    prompts = {
-    "Company_name": f"What is the full legal name of the company known as {company_name}? Provide the exact registered name only.",
-    "Country": f"In which country is {company_name} headquartered? Provide only the country name.",
-    "Website": f"What is the official website of {company_name}? Provide the URL only.",
-    "HasElectronicInhisproducts": f"Does {company_name} produce, sell, or integrate electronics in their products? Answer only 'Yes' or 'No'. Do not add explanations here.",
-    "DoOutsourceElectronicDesign": f"Does {company_name} outsource any electronic design work? Answer only 'Yes' or 'No'. Do not add explanations here.",
-    "DoOutsourceElectronicR&D": f"Does {company_name} outsource any electronic R&D activities (research, prototyping, testing)? Answer only 'Yes' or 'No'. Do not add explanations here.",
-    "BriefCompanyDescription": f"Summarize {company_name}'s profile in a concise paragraph including: company type (public/private/startup/etc.), size (employees/revenue if available), headquarters and global presence (offices, factories, labs), main products/services, industries/sectors, brands/product lines, manufacturing model (OEM, outsourcing, suppliers, PCBs), R&D capabilities, integration of R&D and manufacturing, key personnel (CEO, CTO, R&D heads), and contact information if available. Also include any evidence you found when answering about electronics in products, outsourcing of electronic design, and outsourcing of electronic R&D. Use only factual information gathered from reliable sources (website, press releases, etc.)."
-    }
+def get_company_info(client, company_name, rate_limiter, additional_info=None, model=None):
+    """Get detailed company information using Groq API with rate limiting and additional info"""
+    if model is None:
+        model = "llama-3.1-8b-instant"
+    system_prompt = """You are a business analyst tasked with researching companies in healthcare sector. Provide accurate, concise information based on available data. If information is not available or uncertain, state that clearly."""
+
     results = {}
     max_retries = 3
     base_delay = 2
-    
-    for field, prompt in prompts.items():
+
+    # First, use additional_info to focus on the right company
+    if additional_info:
+        focus_prompt = f"Given the company name '{company_name}' and the following reference or link: '{additional_info}', extract any relevant information about the company and use it to help identify and focus on the correct company for further research. Summarize what you find and clarify if the reference is useful for distinguishing the company from others with similar names."
         retries = 0
         while retries < max_retries:
             try:
-                # Check rate limits
                 wait_time = rate_limiter.should_wait()
                 if wait_time > 0:
                     print(f"\nRate limit approaching - waiting {wait_time:.1f} seconds...")
                     time.sleep(wait_time)
-                
-                # Make API call
+
+                response = client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": focus_prompt}
+                    ],
+                    model=model,
+                    temperature=0.5,
+                    max_tokens=300,
+                    top_p=0.7,
+                    stream=False
+                )
+                if hasattr(response, '_headers'):
+                    rate_limiter.update_limits(response._headers)
+                focus_content = response.choices[0].message.content.strip()
+                results["AdditionalInfoSummary"] = focus_content if focus_content else "No info found"
+                break
+            except Exception as e:
+                retries += 1
+                delay = (2 ** retries) + random.uniform(0, 1)
+                print(f"Error getting AdditionalInfoSummary (attempt {retries}/{max_retries}): {str(e)[:200]}")
+                print(f"Waiting {delay:.1f} seconds before retry...")
+                time.sleep(delay)
+                if retries == max_retries:
+                    results["AdditionalInfoSummary"] = "Information not available"
+
+    # Now, use the obtained info to focus subsequent prompts
+    context_info = results.get("AdditionalInfoSummary", "")
+    def with_context(prompt):
+        if context_info:
+            return f"Context: {context_info}\n\n{prompt}"
+        return prompt
+
+    prompts = {
+        "Company_name": with_context(f"What is the full name of the company known as {company_name}? If there is not an exact match and there are multiple companies with similar names, provide a list of these comapnynames."),
+        "Country": with_context(f"In which country is {company_name} headquartered? Provide only the country name if known, otherwise 'Unknown'."),
+        "Website": with_context(f"What is the official website of {company_name}? Provide the URL only."),
+        "HasElectronicInhisproducts": with_context(f"Does {company_name} produce, sell, or integrate electronics in their products? Answer only 'Yes' or 'No'. Do not add explanations here."),
+        "DoOutsourceElectronicManufacturing": with_context(f"Does {company_name} outsource any electronic manufacturing work? Answer only 'Yes' or 'No'. Do not add explanations here."),
+        "DoOutsourceElectronicR&D": with_context(f"Does {company_name} outsource any electronic R&D activities (research, prototyping, testing)? Answer only 'Yes' or 'No'. Do not add explanations here."),
+        "BriefCompanyDescription": with_context(f"Summarize {company_name}'s profile in a concise paragraph including: company type (public/private/startup/etc.), size (employees/revenue if available), headquarters and global presence (offices, factories, labs), main products/services, industries/sectors, brands/product lines, manufacturing model (OEM, outsourcing, suppliers, PCBs), R&D capabilities, integration of R&D and manufacturing, key personnel (CEO, CTO, R&D heads), and contact information if available. Also include any evidence you found when answering about electronics in products, outsourcing of electronic design, and outsourcing of electronic R&D. Use only factual information gathered from reliable sources (website, press releases, etc.).")
+    }
+
+    for field, prompt in prompts.items():
+        retries = 0
+        while retries < max_retries:
+            try:
+                wait_time = rate_limiter.should_wait()
+                if wait_time > 0:
+                    print(f"\nRate limit approaching - waiting {wait_time:.1f} seconds...")
+                    time.sleep(wait_time)
+
                 response = client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -405,26 +444,21 @@ def get_company_info(client, company_name, rate_limiter):
                     top_p=0.7,
                     stream=False
                 )
-                
-                # Update rate limits from response
                 if hasattr(response, '_headers'):
                     rate_limiter.update_limits(response._headers)
-                
                 content = response.choices[0].message.content.strip()
                 if content:
                     results[field] = content
                     break
-                    
             except Exception as e:
                 retries += 1
                 delay = (2 ** retries) + random.uniform(0, 1)
                 print(f"Error getting {field} (attempt {retries}/{max_retries}): {str(e)[:200]}")
                 print(f"Waiting {delay:.1f} seconds before retry...")
                 time.sleep(delay)
-                
                 if retries == max_retries:
                     results[field] = "Information not available"
-    
+
     return results
 
 def check_network():
@@ -501,15 +535,32 @@ def main():
         handle_error(f"Error loading Excel file: {e}")
     
     # Column selection with validation
+
     print("\nAvailable columns:")
     for idx, col in enumerate(df.columns, 1):
         print(f"{idx}. {col}")
-    
+
+    # Select main column
     while True:
         try:
-            column_idx = int(safe_input("\nSelect column number to process: ")) - 1
+            column_idx = int(safe_input("\nSelect main column number (e.g. company_name): ")) - 1
             if 0 <= column_idx < len(df.columns):
                 column_name = df.columns[column_idx]
+                break
+            print("Invalid column number")
+        except ValueError:
+            print("Please enter a valid number")
+
+    # Select second column
+    print("\nSelect a second column for additional info (e.g. website, reference, etc.):")
+    for idx, col in enumerate(df.columns, 1):
+        print(f"{idx}. {col}")
+
+    while True:
+        try:
+            second_column_idx = int(safe_input("\nSelect second column number: ")) - 1
+            if 0 <= second_column_idx < len(df.columns):
+                second_column_name = df.columns[second_column_idx]
                 break
             print("Invalid column number")
         except ValueError:
@@ -542,19 +593,15 @@ def main():
         
         for idx, api_key in enumerate([my_api_key, my_api_key2], 1):
             print(f"\nTesting API key {idx}...")
-            
-            # Test basic connectivity first
             connected, result = test_api_connection(api_key)
             if not connected:
                 print(f"⚠️ API key {idx} connection failed: {result}")
                 continue
-                
             try:
-                client = result  # Use the client from successful connection test
+                client = result
                 model = pick_valid_model(client)
                 print(f"✅ API key {idx} validated successfully with model: {model}")
-                clients.append(client)  # Store only the client, not a tuple
-                
+                clients.append((client, model))  # Store tuple (client, model)
             except Exception as e:
                 print(f"⚠️ API key {idx} validation failed: {str(e)[:200]}")
                 
@@ -588,12 +635,12 @@ def main():
     
     # Create initial Excel file with headers
     try:
-        print("\nCreating output file with headers...")
-        df_initial = pd.DataFrame(columns=df.columns)
-        df_initial.to_excel(output_file, sheet_name=sheet_name, index=False)
-        print(f"✅ Created: {output_file}")
+        print("\nCopying all content from input file to output file...")
+        # Write the entire original DataFrame to the output file
+        df.to_excel(output_file, sheet_name=sheet_name, index=False)
+        print(f"✅ Copied all content to: {output_file}")
     except Exception as e:
-        handle_error(f"Failed to create output file: {e}")
+        handle_error(f"Failed to copy input file content to output file: {e}")
     
     # After file creation
     success, error = verify_file_creation(output_file)
@@ -610,21 +657,24 @@ def main():
     try:
         print("\nStarting processing...")
         for index, row in df.iloc[tracker.current_row:rows_to_process].iterrows():
+
             try:
                 while tracker.paused:
                     time.sleep(0.1)
-                
+
                 company_name = row[column_name]
-                logging.info(f"Processing {company_name} ({index + 1}/{rows_to_process})")
-                
+                additional_info = row[second_column_name]
+                logging.info(f"Processing {company_name} ({index + 1}/{rows_to_process}) ")
+
                 try:
-                    company_info = get_company_info(clients[current_client], company_name, rate_limiter)
+                    client, model = clients[current_client]
+                    company_info = get_company_info(client, company_name, rate_limiter, additional_info=additional_info, model=model)
                     if company_info:
                         print(f"\r✅ Completed: {company_name}")
                         # Update DataFrame
                         for field, value in company_info.items():
                             df.at[index, field] = value
-                        
+
                         # Save updates to Excel with proper error handling
                         try:
                             # Read existing file
@@ -637,26 +687,28 @@ def main():
                             print(f"💾 Saved updates to {output_file}")
                         except Exception as e:
                             logging.error(f"Failed to save updates: {e}")
-                        
+
                         tracker.update(index + 1)
                         pbar.update(1)
-                        
+
                         # Log rate limit status periodically
                         if (index + 1) % 5 == 0:
                             logging.info(
                                 f"Rate limits - Requests: {rate_limiter.remaining_requests}, "
                                 f"Tokens: {rate_limiter.remaining_tokens}"
                             )
-                
+
                 except Exception as e:
+                    # Log full error details for diagnostics
+                    print(f"Error processing {company_name} (row {index}): {str(e)}")
+                    logging.error(f"Error processing {company_name} (row {index}): {str(e)}")
                     # Try with backup API key if available
                     if len(clients) > 1:
                         current_client = (current_client + 1) % len(clients)
                         print(f"\nSwitching to backup API key {current_client + 1}")
                         continue
-                    logging.error(f"Error processing {company_name}: {str(e)}")
                     continue
-    
+
             except Exception as e:
                 logging.error(f"Error processing row {index}: {e}")
                 continue
