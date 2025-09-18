@@ -37,3 +37,7 @@ Thumbs.db
 *progress*.*
 *error*.*
 
+# Ignore any other folders
+files/
+
+# End of .gitignore

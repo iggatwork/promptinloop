@@ -327,11 +327,12 @@ def get_output_filename(input_filename):
     """Generate output filename by adding '-processed' before extension"""
     try:
         base, ext = os.path.splitext(input_filename)
-        # Create a timestamp to make filename unique
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        # Use current directory instead of Downloads
+        files_dir = os.path.join(os.getcwd(), "files")
+        if not os.path.exists(files_dir):
+            os.makedirs(files_dir)
         output_path = os.path.join(
-            os.getcwd(), 
+            files_dir,
             f"{os.path.basename(base)}-processed-{timestamp}{ext}"
         )
         return output_path
@@ -617,8 +618,12 @@ def main():
     current_client = 0  # Index for current client
     
     # Initialize logging
+    files_dir = os.path.join(os.getcwd(), "files")
+    if not os.path.exists(files_dir):
+        os.makedirs(files_dir)
+    log_filename = os.path.join(files_dir, f"lookinloop_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
     logging.basicConfig(
-        filename=f"lookinloop_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+        filename=log_filename,
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
@@ -648,8 +653,7 @@ def main():
         handle_error(f"Failed to verify output file: {error}")
     
     # After log file creation
-    log_file = f"lookinloop_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    success, error = verify_file_creation(log_file)
+    success, error = verify_file_creation(log_filename)
     if not success:
         print(f"Warning: Could not verify log file: {error}")
     
@@ -717,7 +721,7 @@ def main():
         logging.error(f"Processing error: {e}")
     finally:
         print(f"\nOutput file location: {os.path.abspath(output_file)}")
-        print(f"Log file location: {os.path.abspath(logging.getLoggerClass().root.handlers[0].baseFilename)}")
+        print(f"Log file location: {os.path.abspath(log_filename)}")
     
     print("\nProcessing complete!")
 
