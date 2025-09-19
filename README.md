@@ -19,6 +19,23 @@ A Python script for interacting with the Groq API using multiple API keys. This 
     - Selecting Groq model list
     - Modify prompt at your convenience
 
+## Factors to weigh the best model depending on the prompt definition
+
+**Daily request allowance (RPD):**
+    - llama-3.1-8b-instant: 14,400/day → the highest by far 🚀
+    - Most others: only 1,000/day.
+**Token capacity (TPM / TPD):**
+    - llama-3.1-8b-instant: 6k/min, 500k/day.
+    - qwen/qwen3-32b: 6k/min, 500k/day.
+    - gpt-oss-120b: 8k/min, but only 200k/day.
+    - llama-3.1-70b-versatile: 12k/min, but only 100k/day.
+    - moonshotai/kimi-k2-instruct: 10k/min, 300k/day.
+**Model quality vs cost in requests:**
+    - 8B (llama-3.1-8b-instant): faster, cheaper, high request quota. Best for scaling bulk lookups.
+    - 70B / 120B / 20B: smarter & more accurate reasoning, but your quota (1k/day) could bottleneck you quickly if you’re processing many companies.
+    - qwen3-32b: balance between quality and high daily token quota (500k/day), but still capped at 1k requests/day.
+    - moonshotai/kimi-k2-instruct: generous RPM (60) and solid TPD (300k), but again only 1k requests/day.
+
 ## Usage
 
 Run the script from the command line:
@@ -31,7 +48,8 @@ The script will:
 - Load API keys from the `.env` file
 - Test connectivity for each key
 - Display an interactive menu with options
-- Selecting a Groq model that first works
+- Check groq API keys
+- Permit the user to select a Groq model
 - Sending prompts to the API
 - Viewing results and responses
 - Handeling pause/resume and Exiting the program
@@ -42,7 +60,8 @@ When you run `python LookinLoop.py`, a file selection menu will appear in your t
 - Select the column on the file that states the company_name or the variable you need to include in your prompt
 - Select a secondary column on the file that provides a link or a context to refine the prompt consultation
 - Determine how many rows to process
-
+- From the propossed list of groq models, select the one that best fit the prompt to be run
+- Run the process
 
 ### Output Files
 When running the script, two main files will be generated or updated:

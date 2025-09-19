@@ -25,9 +25,21 @@ my_api_key2 = os.getenv("MY_API_KEY2")
 GROQ_MODELS = [
     "llama-3.1-8b-instant",      # cheaper + faster
     "openai/gpt-oss-120b",       # large open-source GPT
-    "openai/gpt-oss-20b",         # smaller open-source GPT
-    "llama-3.1-70b-versatile"    # strong general-purpose
+    "openai/gpt-oss-20b",        # smaller open-source GPT
+    "llama-3.1-70b-versatile",   # strong general-purpose
+    "moonshotai/kimi-k2-instruct", # higher RPM: 60
+    "qwen/qwen3-32b"               # higher RPM: 60
 ]
+
+# Per-model rate limits (hardcoded)
+MODEL_LIMITS = {
+    "llama-3.1-8b-instant": {"RPM": 30, "RPD": 14400, "TPM": 6000, "TPD": 500000},
+    "openai/gpt-oss-120b": {"RPM": 30, "RPD": 1000, "TPM": 8000, "TPD": 200000},
+    "openai/gpt-oss-20b": {"RPM": 30, "RPD": 1000, "TPM": 8000, "TPD": 200000},
+    "llama-3.1-70b-versatile": {"RPM": 30, "RPD": 1000, "TPM": 12000, "TPD": 100000},
+    "moonshotai/kimi-k2-instruct": {"RPM": 60, "RPD": 1000, "TPM": 10000, "TPD": 300000},
+    "qwen/qwen3-32b": {"RPM": 60, "RPD": 1000, "TPM": 6000, "TPD": 500000},
+}
 
 # Use the latest supported model, Groq supports Meta LLaMA 3.1, Gemma 2, Mixtral, etc.
 # model = "claude-3-opus-20240229"  # That’s an Anthropic Claude model, which Groq does not host.
@@ -36,12 +48,17 @@ Mymodel = "llama-3.1-8b-instant", # cheaper + faster
 # Mymodel = "openai/gpt-oss-120b", # large open-source GPT
 # Mymodel = "openai/gpt-oss-20b"   # smaller open-source GPT
 
+
 class GroqRateLimiter:
-    def __init__(self):
-        self.requests_per_day = 14400
-        self.tokens_per_minute = 18000
-        self.remaining_requests = 14400
-        self.remaining_tokens = 18000
+    def __init__(self, model_name):
+        limits = MODEL_LIMITS.get(model_name, MODEL_LIMITS["llama-3.1-8b-instant"])
+        self.model_name = model_name
+        self.requests_per_minute = limits["RPM"]
+        self.requests_per_day = limits["RPD"]
+        self.tokens_per_minute = limits["TPM"]
+        self.tokens_per_day = limits["TPD"]
+        self.remaining_requests = self.requests_per_day
+        self.remaining_tokens = self.tokens_per_minute
         self.request_reset_time = None
         self.token_reset_time = None
         self.last_update = datetime.now()
@@ -77,12 +94,14 @@ class GroqRateLimiter:
         now = datetime.now()
         
         # If we're close to limits, calculate wait time
-        if self.remaining_requests < 100 or self.remaining_tokens < 1000:
+        # Use model-specific thresholds (10% of limit)
+        req_threshold = max(1, int(0.1 * self.requests_per_day))
+        tok_threshold = max(1, int(0.1 * self.tokens_per_minute))
+        if self.remaining_requests < req_threshold or self.remaining_tokens < tok_threshold:
             if self.request_reset_time and now < self.request_reset_time:
                 return (self.request_reset_time - now).total_seconds()
             if self.token_reset_time and now < self.token_reset_time:
                 return (self.token_reset_time - now).total_seconds()
-        
         return 0
 
 class ProgressTracker:
@@ -366,13 +385,29 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
     """Get detailed company information using Groq API with rate limiting and additional info"""
     if model is None:
         model = "llama-3.1-8b-instant"
-    system_prompt = """You are a business analyst tasked with researching companies in healthcare sector. Provide accurate, concise information based on available data. If information is not available or uncertain, state that clearly."""
+    system_prompt = """You are a professional business analyst tasked with researching companies in the healthcare sector. 
+                    Use all reliable sources of knowledge you have access to, including public websites, press releases, 
+                    regulatory filings, and known business databases. 
+
+                    Do not limit your reasoning to any reference context provided — treat that only as a hint for disambiguation. 
+                    If information is not available, say "Unknown" or "Not available", and avoid speculation.."""
 
     results = {}
     max_retries = 3
     base_delay = 2
+    def handle_429(e):
+        if hasattr(e, 'response') and getattr(e.response, 'status_code', None) == 429:
+            print("\n=== API rate limit reached (429 Too Many Requests) ===")
+            print("You have reached the daily request limit for this model/API key. Processing will stop.")
+            print("Please try again tomorrow or switch to a different API key/model.")
+            sys.exit(1)
+        elif '429' in str(e):
+            print("\n=== API rate limit reached (429 Too Many Requests) ===")
+            print("You have reached the daily request limit for this model/API key. Processing will stop.")
+            print("Please try again tomorrow or switch to a different API key/model.")
+            sys.exit(1)
 
-    # First, use additional_info to focus on the right company
+    # Step 1: Use additional_info to focus on the right company (unchanged)
     if additional_info:
         focus_prompt = f"Given the company name '{company_name}' and the following reference or link: '{additional_info}', extract any relevant information about the company and use it to help identify and focus on the correct company for further research. Summarize what you find and clarify if the reference is useful for distinguishing the company from others with similar names. If there is not an exact match and there are multiple companies with similar names, provide a list of these company names."
         retries = 0
@@ -400,6 +435,7 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
                 results["AdditionalInfoSummary"] = focus_content if focus_content else "No info found"
                 break
             except Exception as e:
+                handle_429(e)
                 retries += 1
                 delay = (2 ** retries) + random.uniform(0, 1)
                 print(f"Error getting AdditionalInfoSummary (attempt {retries}/{max_retries}): {str(e)[:200]}")
@@ -408,57 +444,165 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
                 if retries == max_retries:
                     results["AdditionalInfoSummary"] = "Information not available"
 
-    # Now, use the obtained info to focus subsequent prompts
+    # Step 2: Use the obtained info to focus subsequent prompts
     context_info = results.get("AdditionalInfoSummary", "")
     def with_context(prompt):
         if context_info:
-            return f"Context: {context_info}\n\n{prompt}"
+            return (
+                f"You are researching the company '{company_name}'. "
+                f"Here is some optional reference information which may or may not be useful: {context_info} "
+                f"Use this reference only to help disambiguate the company if necessary, "
+                f"but otherwise answer based on the most reliable and broad information available. "
+                f"\n\n{prompt}"
+            )
         return prompt
 
-    prompts = {
-        "Company_name": with_context(f"What is the full name of the company known as {company_name}?, provide only the exact name if known, otherwise 'Unknown'. Do not add explanations here."),
-        "Country": with_context(f"In which country is {company_name} headquartered? Provide only the country name if known, otherwise 'Unknown'. Do not add explanations here."),
-        "Website": with_context(f"What is the official website of {company_name}? Provide the URL only if known, otherwise 'Unknown'. Do not add explanations here."),
-        "HasElectronicInhisproducts": with_context(f"Does {company_name} produce, sell, or integrate electronics in their products? Answer only 'Yes' or 'No'. Do not add explanations here."),
-        "DoOutsourceElectronicManufacturing": with_context(f"Does {company_name} outsource any electronic manufacturing work? Answer only 'Yes' or 'No'. Do not add explanations here."),
-        "DoOutsourceElectronicR&D": with_context(f"Does {company_name} outsource any electronic R&D activities (research, prototyping, testing)? Answer only 'Yes' or 'No'. Do not add explanations here."),
-        "BriefCompanyDescription": with_context(f"Summarize {company_name}'s profile in a concise paragraph including: company type (public/private/startup/etc.), size (employees/revenue if available), headquarters and global presence (offices, factories, labs), main products/services, industries/sectors, brands/product lines, manufacturing model (OEM, outsourcing, suppliers, PCBs), R&D capabilities, integration of R&D and manufacturing, key personnel (CEO, CTO, R&D heads), and contact information if available. Also include any evidence you found when answering about electronics in products, outsourcing of electronic design, and outsourcing of electronic R&D. Use only factual information gathered from reliable sources (website, press releases, etc.).")
-    }
+    # --- Optimized prompts ---
+    # 1. Identity info (name, country, website)
+    identity_prompt = with_context(f"""
+    For the company known as {company_name}, provide:
+    1. Full company name (or 'Unknown'), do not add extra details 
+    2. Country of headquarters (or 'Unknown'), do not add extra details
+    3. Official website (URL only, or 'Unknown'), do not add extra details
 
-    for field, prompt in prompts.items():
-        retries = 0
-        while retries < max_retries:
-            try:
-                wait_time = rate_limiter.should_wait()
-                if wait_time > 0:
-                    print(f"\nRate limit approaching - waiting {wait_time:.1f} seconds...")
-                    time.sleep(wait_time)
+    Format your answer as:
+    Company_name: ...
+    Country: ...
+    Website: ...
+    """)
 
-                response = client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
-                    model=model,
-                    temperature=0.5,
-                    max_tokens=300,
-                    top_p=0.7,
-                    stream=False
-                )
-                if hasattr(response, '_headers'):
-                    rate_limiter.update_limits(response._headers)
-                content = response.choices[0].message.content.strip()
-                if content:
-                    results[field] = content
-                    break
-            except Exception as e:
-                retries += 1
-                delay = (2 ** retries) + random.uniform(0, 1)
-                print(f"Error getting {field} (attempt {retries}/{max_retries}): {str(e)[:200]}")
-                print(f"Waiting {delay:.1f} seconds before retry...")
-                time.sleep(delay)
-                if retries == max_retries:
-                    results[field] = "Information not available"
+    retries = 0
+    while retries < max_retries:
+        try:
+            wait_time = rate_limiter.should_wait()
+            if wait_time > 0:
+                print(f"\nRate limit approaching - waiting {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": identity_prompt}
+                ],
+                model=model,
+                temperature=0.5,
+                max_tokens=300,
+                top_p=0.7,
+                stream=False
+            )
+            if hasattr(response, '_headers'):
+                rate_limiter.update_limits(response._headers)
+            content = response.choices[0].message.content.strip()
+            if content:
+                for line in content.splitlines():
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        results[key.strip()] = value.strip()
+                break
+        except Exception as e:
+            handle_429(e)
+            retries += 1
+            delay = (2 ** retries) + random.uniform(0, 1)
+            print(f"Error getting identity info (attempt {retries}/{max_retries}): {str(e)[:200]}")
+            print(f"Waiting {delay:.1f} seconds before retry...")
+            time.sleep(delay)
+            if retries == max_retries:
+                results["Company_name"] = "Information not available"
+                results["Country"] = "Information not available"
+                results["Website"] = "Information not available"
+
+    # 2. Electronics/outsourcing block (yes/no)
+    electronics_prompt = with_context(f"""
+    For the company {company_name}, answer only with Yes/No/Unknown:
+    1. Does the company produce, sell, or integrate electronics in their products?
+    2. Does the company outsource any electronic manufacturing work?
+    3. Does the company outsource any electronic R&D activities?
+
+    Format your answer as:
+    HasElectronicInhisproducts: Yes/No/Unknown
+    DoOutsourceElectronicManufacturing: Yes/No/Unknown
+    DoOutsourceElectronicR&D: Yes/No/Unknown
+    """)
+
+    retries = 0
+    while retries < max_retries:
+        try:
+            wait_time = rate_limiter.should_wait()
+            if wait_time > 0:
+                print(f"\nRate limit approaching - waiting {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": electronics_prompt}
+                ],
+                model=model,
+                temperature=0.5,
+                max_tokens=300,
+                top_p=0.7,
+                stream=False
+            )
+            if hasattr(response, '_headers'):
+                rate_limiter.update_limits(response._headers)
+            content = response.choices[0].message.content.strip()
+            if content:
+                for line in content.splitlines():
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        results[key.strip()] = value.strip()
+                break
+        except Exception as e:
+            handle_429(e)
+            retries += 1
+            delay = (2 ** retries) + random.uniform(0, 1)
+            print(f"Error getting electronics/outsourcing info (attempt {retries}/{max_retries}): {str(e)[:200]}")
+            print(f"Waiting {delay:.1f} seconds before retry...")
+            time.sleep(delay)
+            if retries == max_retries:
+                results["HasElectronicInhisproducts"] = "Information not available"
+                results["DoOutsourceElectronicManufacturing"] = "Information not available"
+                results["DoOutsourceElectronicR&D"] = "Information not available"
+
+    # 3. Company profile (detailed description)
+    profile_prompt = with_context(f"""
+    Write a concise factual profile of {company_name}. Include: company type, size (employees/revenue), headquarters and global presence, main products/services, industries, brands, manufacturing model (OEM, outsourcing, suppliers, PCBs), R&D capabilities, integration of R&D and manufacturing, key personnel (CEO, CTO, R&D heads), and contact information if available. Clearly state if electronics, outsourcing of design, or outsourcing of R&D were confirmed. Use only verified information. If some details are not available, say 'Unknown'.
+    """)
+
+    retries = 0
+    while retries < max_retries:
+        try:
+            wait_time = rate_limiter.should_wait()
+            if wait_time > 0:
+                print(f"\nRate limit approaching - waiting {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": profile_prompt}
+                ],
+                model=model,
+                temperature=0.5,
+                max_tokens=400,
+                top_p=0.7,
+                stream=False
+            )
+            if hasattr(response, '_headers'):
+                rate_limiter.update_limits(response._headers)
+            content = response.choices[0].message.content.strip()
+            if content:
+                results["BriefCompanyDescription"] = content
+                break
+        except Exception as e:
+            handle_429(e)
+            retries += 1
+            delay = (2 ** retries) + random.uniform(0, 1)
+            print(f"Error getting company profile (attempt {retries}/{max_retries}): {str(e)[:200]}")
+            print(f"Waiting {delay:.1f} seconds before retry...")
+            time.sleep(delay)
+            if retries == max_retries:
+                results["BriefCompanyDescription"] = "Information not available"
 
     return results
 
@@ -583,39 +727,100 @@ def main():
         except ValueError:
             print("Please enter a valid number")
     
-    # Initialize Groq client with better error handling
-    try:
-        print("\nChecking network connectivity...")
-        if not check_network():
-            raise Exception("No internet connection available")
-            
-        print("\nInitializing API clients...")
-        clients = []
-        
-        for idx, api_key in enumerate([my_api_key, my_api_key2], 1):
-            print(f"\nTesting API key {idx}...")
-            connected, result = test_api_connection(api_key)
-            if not connected:
-                print(f"⚠️ API key {idx} connection failed: {result}")
-                continue
+    # Step 1: Check network
+    print("\nChecking network connectivity...")
+    if not check_network():
+        handle_error("No internet connection available")
+
+    # Step 2: Test all models for each API key and collect rate limit info
+    print("\nTesting API keys and models...")
+    api_keys = [my_api_key, my_api_key2]
+    valid_models = {}
+    model_headers = {}
+    clients = []  # List of (client, model) tuples
+    for idx, api_key in enumerate(api_keys, 1):
+        print(f"\nTesting API key {idx}...")
+        try:
+            client = Groq(
+                api_key=api_key,
+                timeout=httpx.Timeout(30.0, read=15.0, write=15.0, connect=10.0),
+                max_retries=2
+            )
+        except Exception as e:
+            print(f"⚠️ Could not initialize client for API key {idx}: {e}")
+            continue
+        for model in GROQ_MODELS:
             try:
-                client = result
-                model = pick_valid_model(client)
-                print(f"✅ API key {idx} validated successfully with model: {model}")
-                clients.append((client, model))  # Store tuple (client, model)
+                response = client.chat.completions.create(
+                    messages=[{"role": "user", "content": "test"}],
+                    model=model,
+                    max_tokens=1
+                )
+                if hasattr(response, 'choices'):
+                    valid_models.setdefault(model, []).append(idx)
+                    if hasattr(response, '_headers'):
+                        model_headers[(idx, model)] = response._headers
+                    clients.append((client, model))  # Store tuple for valid (client, model)
             except Exception as e:
-                print(f"⚠️ API key {idx} validation failed: {str(e)[:200]}")
-                
-        if not clients:
-            raise Exception("No working API keys found. Please check:\n" +
-                          "1. Your internet connection\n" +
-                          "2. API key validity\n" +
-                          "3. Groq service status: https://status.groq.com")
-            
-    except Exception as e:
-        handle_error(f"Failed to initialize API clients: {e}")
-    
+                continue
+
+    # Step 3: Present menu of valid models with descriptions and rate limit info
+    print("\nAvailable models for your API keys:")
+    menu_items = []
+    model_map = []  # List of (client, model) tuples for menu
+    item_num = 1
+    for (client, model) in clients:
+        desc = {
+            "llama-3.1-8b-instant": "faster, cheaper, high request quota. Best for scaling bulk lookups.",
+            "llama-3.1-70b-versatile": "smarter & more accurate reasoning, but quota (1k/day) could bottleneck you quickly.",
+            "openai/gpt-oss-120b": "smarter & more accurate reasoning, but quota (1k/day) could bottleneck you quickly.",
+            "openai/gpt-oss-20b": "smarter & more accurate reasoning, but quota (1k/day) could bottleneck you quickly.",
+            "qwen/qwen3-32b": "balance between quality and high daily token quota (500k/day), but still capped at 1k requests/day.",
+            "moonshotai/kimi-k2-instruct": "generous RPM (60) and solid TPD (300k), but again only 1k requests/day."
+        }.get(model, "")
+        # Find API key index for this client
+        api_key_idx = api_keys.index(client.api_key) + 1 if hasattr(client, 'api_key') and client.api_key in api_keys else 1
+        # Try to get live headers, else fallback to hardcoded limits
+        headers = model_headers.get((api_key_idx, model), {})
+        if headers:
+            rpd = headers.get('x-ratelimit-limit-requests', 'unknown')
+            rpd_left = headers.get('x-ratelimit-remaining-requests', 'unknown')
+            tpm = headers.get('x-ratelimit-limit-tokens', 'unknown')
+            tpm_left = headers.get('x-ratelimit-remaining-tokens', 'unknown')
+            rpd_reset = headers.get('x-ratelimit-reset-requests', 'unknown')
+            tpm_reset = headers.get('x-ratelimit-reset-tokens', 'unknown')
+        else:
+            # Fallback: use hardcoded limits
+            limits = MODEL_LIMITS.get(model, {})
+            rpd = limits.get('RPD', 'unknown')
+            rpd_left = 'unknown'  # Not available
+            tpm = limits.get('TPM', 'unknown')
+            tpm_left = 'unknown'  # Not available
+            rpd_reset = 'unknown'
+            tpm_reset = 'unknown'
+        print(f"{item_num}. {model} (API key {api_key_idx}): {desc}\n   Requests/day: {rpd}, left: {rpd_left}, Tokens/min: {tpm}, left: {tpm_left}, Reset: {rpd_reset} (requests), {tpm_reset} (tokens)")
+        # NOTE: If you want live quota info, check Groq client docs for how to access HTTP response headers.
+        menu_items.append(f"{model} (API key {api_key_idx})")
+        model_map.append((client, model))
+        item_num += 1
+
+    if not menu_items:
+        handle_error("No valid models found for your API keys.")
+
+    # Step 4: User selects model
+    while True:
+        model_choice = safe_input(f"Enter model number (1-{len(menu_items)}): ", validate_func=lambda x: x.isdigit() and 1 <= int(x) <= len(menu_items))
+        model_idx = int(model_choice) - 1
+        selected_client, selected_model = model_map[model_idx]
+        print(f"Selected model: {selected_model}")
+        confirm = safe_input("Proceed with this model? (Y/n): ", default='y').lower()
+        if confirm == 'y':
+            break
+
+    # Step 5: Use selected model/client for all further processing
+    model = selected_model
     current_client = 0  # Index for current client
+    clients = [(selected_client, selected_model)]  # Only use selected client/model for processing
     
     # Initialize logging
     files_dir = os.path.join(os.getcwd(), "files")
@@ -635,13 +840,28 @@ def main():
     # Create progress bar
     pbar = tqdm(total=rows_to_process, initial=tracker.current_row)
     
-    # Initialize rate limiter
-    rate_limiter = GroqRateLimiter()
+    # Initialize rate limiter for the selected model
+    rate_limiter = GroqRateLimiter(model)
     
+    # Ensure output DataFrame has required columns
+    required_fields = [
+        "Identity",
+        "Company_name",
+        "Country",
+        "Website",
+        "HasElectronicInhisproducts",
+        "DoOutsourceElectronicManufacturing",
+        "DoOutsourceElectronicR&D",
+        "BriefCompanyDescription"
+    ]
+    # Ensure output DataFrame has only the required columns (plus original columns)
+    for field in required_fields:
+        if field not in df.columns:
+            df[field] = ""
+
     # Create initial Excel file with headers
     try:
         print("\nCopying all content from input file to output file...")
-        # Write the entire original DataFrame to the output file
         df.to_excel(output_file, sheet_name=sheet_name, index=False)
         print(f"✅ Copied all content to: {output_file}")
     except Exception as e:
@@ -675,19 +895,17 @@ def main():
                     company_info = get_company_info(client, company_name, rate_limiter, additional_info=additional_info, model=model)
                     if company_info:
                         print(f"\r✅ Completed: {company_name}")
-                        # Update DataFrame
-                        for field, value in company_info.items():
-                            df.at[index, field] = value
+
+
+                        # Update required columns only
+                        for field in required_fields:
+                            df.at[index, field] = company_info.get(field, "")
 
                         # Save updates to Excel with proper error handling
                         try:
-                            # Read existing file
-                            existing_df = pd.read_excel(output_file, sheet_name=sheet_name)
-                            # Update the row
-                            for field, value in company_info.items():
-                                existing_df.at[index, field] = value
-                            # Save entire file
-                            existing_df.to_excel(output_file, sheet_name=sheet_name, index=False)
+                            # Only save required columns plus original columns
+                            output_cols = list(df.columns)
+                            df.to_excel(output_file, sheet_name=sheet_name, index=False, columns=output_cols)
                             print(f"💾 Saved updates to {output_file}")
                         except Exception as e:
                             logging.error(f"Failed to save updates: {e}")
