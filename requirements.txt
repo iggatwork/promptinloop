@@ -4,3 +4,9 @@ httpx==0.27.0
 tqdm==4.66.2
 openpyxl==3.1.2  # Required for Excel support in pandas
 pyarrow>=14.0.1
+httpx
+python-dotenv
+groq
+openai==0.28
+pandas==2.2.0
+tqdm==4.66.2

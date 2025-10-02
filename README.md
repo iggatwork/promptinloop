@@ -13,10 +13,11 @@ A Python script for interacting with the Groq API using multiple API keys. This 
      ```env
      MY_API_KEY=your_first_groq_api_key
      MY_API_KEY2=your_second_groq_api_key
+     MY_OPENAI_API_KEY=your_first_openAI_key
      ```
    - Never commit your `.env` file with real API keys to version control.
 4. **Modify LookinLoop.py**
-    - Selecting Groq model list
+    - Selecting Groq or Open.AI model list
     - Modify prompt at your convenience
 
 ## Factors to weigh the best model depending on the prompt definition
@@ -46,10 +47,10 @@ python LookinLoop.py
 
 The script will:
 - Load API keys from the `.env` file
-- Test connectivity for each key
 - Display an interactive menu with options
-- Check groq API keys
-- Permit the user to select a Groq model
+- Select between the available clients (OPEN.AI, GROQ, etc..)
+- Check its relative API keys
+- Permit the user to select a the model
 - Sending prompts to the API
 - Viewing results and responses
 - Handeling pause/resume and Exiting the program
@@ -60,7 +61,8 @@ When you run `python LookinLoop.py`, a file selection menu will appear in your t
 - Select the column on the file that states the company_name or the variable you need to include in your prompt
 - Select a secondary column on the file that provides a link or a context to refine the prompt consultation
 - Determine how many rows to process
-- From the propossed list of groq models, select the one that best fit the prompt to be run
+- From a list of available AI agents, select one of them.
+- From the propossed list of models for previous agent, select the one that best fit the prompt to be run
 - Run the process
 
 ### Output Files
@@ -90,7 +92,7 @@ To resume:
 This feature is useful for handling large datasets or long-running tasks, allowing you to split work across multiple sessions.
 
 ## Notes
-- Update the `GROQ_MODELS` list in `LookinLoop.py` if Groq adds new models.
+- Update the `MODELS` list and limits for each model in `LookinLoop.py` .
 - Check the `.gitignore` file to ensure sensitive files are not tracked.
 
 ## Troubleshooting
