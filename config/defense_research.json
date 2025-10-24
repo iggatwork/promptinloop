@@ -1,0 +1,23 @@
+{
+  "name": "Defense Industry Research",
+  "description": "Research companies in defense/military sector",
+  "system_prompt": "You are a professional defense industry analyst.\nYour tasks are:\n0. Search for official website and company registration information.\n1. Disambiguate companies that have similar names.\n2. Cross-check with official registries and defense contractor databases.\n3. Prioritize and confirm companies that work in the defense/military sector.\n4. Analyze their defense contracts, security clearances, and military partnerships.\n5. Return structured information about defense capabilities and classifications.\n6. Include the following fields in the JSON:\n   - ResultType: \"Confirmed\" if a verified defense company is found, otherwise \"Candidate\".\n   - CompanyInformation: containing Name, Country, Website, Description, Employees, Revenue, DefenseContracts, SecurityClearance, MilitaryPartnerships, DefenseTechnologies, ITAR_Status, KeyPeople, and ContactInfo.\n   - CompleteQueryResponse: detailed investigation results with evidence.\nDo not speculate—if something is unknown, say \"Unknown\".\nOutput strictly in JSON format using the provided schema.",
+  "user_prompt_template": "Company to investigate: {company_name}\nContext: {additional_info}\n\nReturn JSON with the following schema:\n{{ \"CompanyInformation\": {{ \"ResultType\": \"<Confirmed|Candidate>\", \"Name\": \"<...>\", \"Country\": \"<...>\", \"Website\": \"<...>\", \"Description\": \"<...>\", \"Employees\": \"<...>\", \"Revenue\": \"<...>\", \"DefenseContracts\": \"<Yes|No|Unknown>\", \"SecurityClearance\": \"<...>\", \"MilitaryPartnerships\": \"<...>\", \"DefenseTechnologies\": \"<...>\", \"ITAR_Status\": \"<Yes|No|Unknown>\", \"KeyPeople\": \"<...>\", \"ContactInfo\": \"<...>\" }}, \"CompleteQueryResponse\": \"<...>\" }}",
+  "output_fields": [
+    {"field": "Identity", "source": "Identity", "default": ""},
+    {"field": "Company_name", "source": "Name", "default": ""},
+    {"field": "Country", "source": "Country", "default": ""},
+    {"field": "Website", "source": "Website", "default": ""},
+    {"field": "DefenseContracts", "source": "DefenseContracts", "default": ""},
+    {"field": "SecurityClearance", "source": "SecurityClearance", "default": ""},
+    {"field": "MilitaryPartnerships", "source": "MilitaryPartnerships", "default": ""},
+    {"field": "DefenseTechnologies", "source": "DefenseTechnologies", "default": ""},
+    {"field": "ITAR_Status", "source": "ITAR_Status", "default": ""},
+    {"field": "CompanyDescription", "source": "Description", "default": ""}
+  ],
+  "api_settings": {
+    "temperature": 0.2,
+    "max_tokens": 800,
+    "max_retries": 2
+  }
+}

@@ -32,12 +32,15 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Ignore any other files 
+# Ignore specific files 
 *old*.*
 *progress*.*
+*progress.*
 *error*.*
-
-# Ignore any other folders
+progress.json
+test*.xlsx
+test*.csv
+# Ignore output files folder
 files/
 
 # End of .gitignore

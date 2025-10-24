@@ -1,0 +1,32 @@
+{
+  "name": "Electronic Manufacturing Industry Research",
+  "description": "Comprehensive research of electronic manufacturing companies focusing on outsourcing, EMS relationships, and business metrics",
+  "system_prompt": "You are a professional electronic manufacturing industry analyst. Your tasks are:\n0. Use the provided website to verify and research the company thoroughly - visit the website to gather accurate information.\n1. Disambiguate companies that have similar names, focusing on the correct entity using the website as primary source.\n2. Cross-check with official business registries and industry databases for additional verification.\n3. Research and confirm the company's core business, technologies, and manufacturing capabilities (both electronic and non-electronic).\n4. Investigate their outsourcing practices for electronic manufacturing services and electronic product design.\n5. Identify relationships with EMS (Electronic Manufacturing Service) companies and collaboration agreements.\n6. Gather financial metrics including turnover, employee count, and CAGR figures when available from annual reports or company information.\n7. Extract contact details including email addresses and key representative persons from the website and official sources.\n8. Analyze their market sector and operational focus across all industries they serve.\n9. Even if the company is not primarily electronic manufacturing focused, analyze any electronic components or outsourcing in their operations.\nDo not speculate—if something is unknown, say 'Unknown'.\nOutput strictly in JSON format using the provided schema.",
+    
+  "user_prompt_template": "Company to investigate: {company_name}\nWebsite/Context: {additional_info}\n\nPlease research this electronic manufacturing company thoroughly and return JSON with the following schema:\n{{\n  \"CompanyInformation\": {{\n    \"ResultType\": \"<Confirmed|Candidate>\",\n    \"Name\": \"<exact company name>\",\n    \"Headquarters\": \"<city, country>\",\n    \"Website\": \"<official website URL>\",\n    \"CoreBusiness\": \"<main business activities and focus>\",\n    \"CoreTechnologies\": \"<key technologies and capabilities>\",\n    \"ProductsServices\": \"<detailed list of products and services offered>\",\n    \"Turnover\": \"<annual revenue/turnover figures>\",\n    \"Employees\": \"<number of employees>\",\n    \"CAGR\": \"<compound annual growth rate if available>\",\n    \"MarketSector\": \"<industry sectors they operate in>\",\n    \"CollaborationAgreements\": \"<partnerships and strategic alliances>\",\n    \"OutsourceElectronicManufacturing\": \"<Yes|No|Unknown - do they outsource electronic manufacturing>\",\n    \"OutsourceElectronicDesign\": \"<Yes|No|Unknown - do they outsource electronic product design>\",\n    \"EMSRelationships\": \"<relationships with Electronic Manufacturing Service companies>\",\n    \"KeyPeople\": \"<CEO, CTO, key executives and their roles>\",\n    \"ContactEmail\": \"<official contact email addresses>\",\n    \"Representatives\": \"<key contact persons and their positions>\"\n  }},\n  \"CompleteQueryResponse\": \"<comprehensive analysis with evidence and sources>\"\n}}\n\nFocus specifically on:\n- Electronic manufacturing outsourcing practices\n- EMS company partnerships\n- Financial performance metrics\n- Core technologies and capabilities\n- Contact information for business development",
+  "output_fields": [
+    {"field": "ResultType", "source": "ResultType", "default": ""},
+    {"field": "Company_name", "source": "Name", "default": ""},
+    {"field": "Headquarters", "source": "Headquarters", "default": ""},
+    {"field": "Website", "source": "Website", "default": ""},
+    {"field": "CoreBusiness", "source": "CoreBusiness", "default": ""},
+    {"field": "CoreTechnologies", "source": "CoreTechnologies", "default": ""},
+    {"field": "ProductsServices", "source": "ProductsServices", "default": ""},
+    {"field": "Turnover", "source": "Turnover", "default": ""},
+    {"field": "Employees", "source": "Employees", "default": ""},
+    {"field": "CAGR", "source": "CAGR", "default": ""},
+    {"field": "MarketSector", "source": "MarketSector", "default": ""},
+    {"field": "CollaborationAgreements", "source": "CollaborationAgreements", "default": ""},
+    {"field": "OutsourceElectronicManufacturing", "source": "OutsourceElectronicManufacturing", "default": ""},
+    {"field": "OutsourceElectronicDesign", "source": "OutsourceElectronicDesign", "default": ""},
+    {"field": "EMSRelationships", "source": "EMSRelationships", "default": ""},
+    {"field": "KeyPeople", "source": "KeyPeople", "default": ""},
+    {"field": "ContactEmail", "source": "ContactEmail", "default": ""},
+    {"field": "Representatives", "source": "Representatives", "default": ""}
+  ],
+  "api_settings": {
+    "temperature": 0.1,
+    "max_tokens": 1000,
+    "max_retries": 3
+  }
+}

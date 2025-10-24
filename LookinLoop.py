@@ -13,6 +13,7 @@ import atexit
 from tqdm import tqdm
 import random  # Import random for delay jitter
 import openai
+from config_manager import ConfigManager, select_config  # Import configuration system
 
 # Load API keys from environment variables
 import os
@@ -469,7 +470,7 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
         model = "llama-3.1-8b-instant"
     if rate_limiter is None:
         rate_limiter = DummyRateLimiter(model)
-    system_prompt = """You are a professional business analyst tasked with researching companies in the healthcare sector. 
+    system_prompt = """You are a professional business analyst working for a company in the electronic manufacturing services sector tasked with researching for new customers. 
                     Use all reliable sources of knowledge you have access to, including public websites, press releases, 
                     regulatory filings, and known business databases. 
 
@@ -530,7 +531,7 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
 
     # Step 1: Use additional_info to focus on the right company (unchanged)
     if additional_info:
-        focus_prompt = f"First goal: Find the official website of a company named '{company_name}'. This company operates in the healthcare sector and is attending this tradefair: '{additional_info}'.Steps: 1. Run a search in the web for:{company_name} official website. 2. If the first search yields no result, run a second web search with country‑wildcards: \"{company_name}\" \"official website\" site:.de OR .ch OR .nl OR .fr OR .it OR .es OR .pl OR .uk OR .us 3. For every URL returned in step 1 or 2, fetch the page title and the snippet. Return them in a list. 4. For each domain that looks promising, do a WHOIS lookup to confirm the company is attending the indicated tradefair. Note any “website” field that appears. 7. Summarise the findings in one short paragraph: include the official website URL (or note if none exists), the country that the company is registered in (if found), and the sources you used. Return the answer in plain text, no markdown. If no active website can be found, state that clearly and provide the best evidence you could gather (e.g., archived page, registry entry)."
+        focus_prompt = f"First goal: Find the official website of a company named '{company_name}'. Check if the supposed company activity matches this additional info: '{additional_info}'.Steps: 1. Run a search in the web for:{company_name} official website. 2. If the first search yields no result, run a second web search with country‑wildcards: \"{company_name}\" \"official website\" site:.de OR .ch OR .nl OR .fr OR .it OR .es OR .pl OR .uk OR .us 3. For every URL returned in step 1 or 2, fetch the page title and the snippet. Return them in a list. 4. For each domain that looks promising, do a WHOIS lookup. Note any “website” field that appears. 7. Summarise the findings in one short paragraph: include the official website URL (or note if none exists), the country that the company is registered in (if found), and the sources you used. Return the answer in plain text, no markdown. If no active website can be found, state that clearly and provide the best evidence you could gather (e.g., archived page, registry entry)."
         retries = 0
         while retries < max_retries:
             try:
@@ -731,14 +732,15 @@ def get_company_info(client, company_name, rate_limiter, additional_info=None, m
 
 
 
-def get_company_info_openai(company_name, additional_info=None, client=None, model=None, max_retries=1):
+def get_company_info_openai(company_name, additional_info=None, client=None, model=None, max_retries=1, config_manager=None, config_name=None):
     """
-    Identify and profile a company using OpenAI GPT.
+    Identify and profile a company using OpenAI GPT with configurable prompts.
     Steps:
-    1. Disambiguate company names, find healthcare-related one if possible.
-    2. Check if attending the given trade fair (if context provided).
-    3. If confirmed, return structured info (name, country, website, profile).
-    4. If not confirmed, return best guesses.
+    1. Use configuration to get appropriate prompts and settings
+    2. Disambiguate company names, find sector-related companies if possible.
+    3. Check if attending the given trade fair (if context provided).
+    4. If confirmed, return structured info based on configuration schema.
+    5. If not confirmed, return best guesses.
     """
     # Use provided client or fallback to openai module
     if client is None:
@@ -751,13 +753,23 @@ def get_company_info_openai(company_name, additional_info=None, client=None, mod
     if model is None:
         model = "gpt-4o-mini"
 
-    system_prompt = """You are a professional business analyst.
+    # Get configuration-based prompts and settings
+    if config_manager and config_name:
+        system_prompt = config_manager.get_system_prompt(config_name)
+        user_prompt = config_manager.format_user_prompt(config_name, company_name, additional_info)
+        api_settings = config_manager.get_api_settings(config_name)
+        max_retries = api_settings.get('max_retries', max_retries)
+        temperature = api_settings.get('temperature', 0.3)
+        max_tokens = api_settings.get('max_tokens', 600)
+    else:
+        # Fallback to hardcoded prompts if no configuration
+        system_prompt = """You are a professional business analyst.
 Your tasks are:
 0. Search for official website. If necessary, refine the search using common domain extensions.
 1. Return the top candidate URLs, titles, and snippets.
 2. Disambiguate companies that have similar names.
 3. Cross-check with official registries and WHOIS data to confirm the company's sector of activity.
-4. Prioritize and confirm the company that may work in the healthcare sector and is attending the trade fair (if context provided).
+4. Prioritize and confirm the company that may work in the military sector and matches with the context (if context provided).
 5. If a confirmed company is found, provide the company profile otherwise return the best candidate information.
 6 Return always the following schema: Include the following fields in the JSON:
    - ResultType: \"Confirmed\" if a verified company is found, otherwise \"Candidate\".
@@ -766,22 +778,21 @@ Your tasks are:
 Do not speculate—if something is unknown, say \"Unknown\".
 Output strictly in JSON format using the provided schema."""
 
-    # user_prompt = f"\nCompany to investigate: {company_name}\nTrade fair context: {additional_info or 'Unknown'}\n\nReturn JSON with the following schema:\n{{\n  \"ResultType\": \"Confirmed\" or \"Candidate\",\n  \"MergedInformation\": {{\n      \"Name\": \"...\",\n      \"Country\": \"...\",\n      \"Website\": \"...\",\n      \"Description\": \"...\",\n      \"Employees\": \"...\",\n      \"Revenue\": \"...\",\n      \"ProductsServices\": \"...\",\n      \"ElectronicsInProducts\": \"Yes/No/Unknown\",\n      \"OutsourceElectronicManufacturing\": \"Yes/No/Unknown\",\n      \"OutsourceElectronicR&D\": \"Yes/No/Unknown\",\n      \"KeyPeople\": \"...\",\n      \"ContactInfo\": \"...\"\n  }},\n  \"CompleteQueryResponse\": \"...\"\n}}\nEnsure that the JSON merges all relevant company data into a single structure."
-    # user_prompt = f"\nCompany to investigate: {company_name}\nTrade fair context: {additional_info or 'Unknown'}\n\nReturn JSON with the following schema:\n{{\n   \"CompanyInformation\": {{\n  \"ResultType\": \"Confirmed\" or \"Candidate\",\n    \"Name\": \"...\",\n      \"Country\": \"...\",\n      \"Website\": \"...\",\n      \"Description\": \"...\",\n      \"Employees\": \"...\",\n      \"Revenue\": \"...\",\n      \"ProductsServices\": \"...\",\n      \"ElectronicsInProducts\": \"Yes/No/Unknown\",\n      \"OutsourceElectronicManufacturing\": \"Yes/No/Unknown\",\n      \"OutsourceElectronicR&D\": \"Yes/No/Unknown\",\n      \"KeyPeople\": \"...\",\n      \"ContactInfo\": \"...\"\n  }},\n  \"CompleteQueryResponse\": \"...\"\n}}\nEnsure that the JSON includes all relevant company data in the specified structure."
-
-    user_prompt = f"\nCompany to investigate: {company_name}\nTrade fair context: {additional_info or 'Unknown'}\n\nReturn JSON with the following schema: \n{{ \"CompanyInformation\": {{ \"ResultType\": \"<Confirmed|Candidate>\", \"Name\": \"<...>\", \"Country\": \"<...>\", \"Website\": \"<...>\", \"Description\": \"<...>\", \"Employees\": \"<...>\", \"Revenue\": \"<...>\", \"ProductsServices\": \"<...>\", \"ElectronicsInProducts\": \"<Yes|No|Unknown>\", \"OutsourceElectronicManufacturing\": \"<Yes|No|Unknown>\", \"OutsourceElectronic-R&D\": \"<Yes|No|Unknown>\", \"KeyPeople\": \"<...>\", \"ContactInfo\": \"<...>\" }}, \"CompleteQueryResponse\": \"<...>\" }}\nEnsure that the JSON includes all relevant company data in the specified structure."
+        user_prompt = f"\nCompany to investigate: {company_name}\nTrade fair context: {additional_info or 'Unknown'}\n\nReturn JSON with the following schema: \n{{ \"CompanyInformation\": {{ \"ResultType\": \"<Confirmed|Candidate>\", \"Name\": \"<...>\", \"Country\": \"<...>\", \"Website\": \"<...>\", \"Description\": \"<...>\", \"Employees\": \"<...>\", \"Revenue\": \"<...>\", \"ProductsServices\": \"<...>\", \"ElectronicsInProducts\": \"<Yes|No|Unknown>\", \"OutsourceElectronicManufacturing\": \"<Yes|No|Unknown>\", \"OutsourceElectronic-R&D\": \"<Yes|No|Unknown>\", \"KeyPeople\": \"<...>\", \"ContactInfo\": \"<...>\" }}, \"CompleteQueryResponse\": \"<...>\" }}\nEnsure that the JSON includes all relevant company data in the specified structure."
+        temperature = 0.3
+        max_tokens = 600
 
     retries = 0
     while retries < max_retries:
         try:
             response = client.ChatCompletion.create(
                 model=model,
-                temperature=0.3,
+                temperature=temperature,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=600
+                max_tokens=max_tokens
             )
             content = response.choices[0].message.content.strip()
             
@@ -945,9 +956,19 @@ def main():
     else:
         selected_client = "Groq"
     print(f"Selected client: {selected_client} for processing")
-    # print(f"Selected client: {selected_client} with model: {valid_model}")
-    # # Set clients list based on selection for further processing
-    # clients = [(None, valid_model)]
+    
+    # Step 2.5: Select research configuration
+    print("\n" + "="*50)
+    print("CONFIGURATION SELECTION")
+    print("="*50)
+    config_manager = ConfigManager()
+    selected_config = select_config(config_manager)
+    if not selected_config:
+        handle_error("No configuration selected")
+    
+    config = config_manager.get_config(selected_config)
+    print(f"Selected configuration: {config.get('name', selected_config)}")
+    print(f"Description: {config.get('description', 'No description')}")
     
     # Step 3: Test all models for each API key and collect rate limit info if necessary
     print("\nTesting API keys and models...")
@@ -1098,17 +1119,8 @@ def main():
     else:
         rate_limiter = None  # For OpenAI, rate limiting is handled internally
     
-    # Ensure output DataFrame has required columns
-    required_fields = [
-        "Identity",
-        "Company_name",
-        "Country",
-        "Website",
-        "HasElectronicInhisproducts",
-        "DoOutsourceElectronicManufacturing",
-        "DoOutsourceElectronicR&D",
-        "BriefCompanyDescription"
-    ]
+    # Ensure output DataFrame has required columns based on configuration
+    required_fields = config_manager.get_required_columns(selected_config)
     # Ensure output DataFrame has only the required columns (plus original columns)
     for field in required_fields:
         if field not in df.columns:
@@ -1149,14 +1161,18 @@ def main():
             try:
                 
                 if client_type == "OpenAI":
-                    result = get_company_info_openai(company_name, additional_info, client=client_obj, model=model)
+                    result = get_company_info_openai(company_name, additional_info, client=client_obj, model=model, config_manager=config_manager, config_name=selected_config)
                 else:
                     result = get_company_info(client_obj, company_name, rate_limiter, additional_info, model=model)
                 
                 if result:
                     logging.info(f"Result for {company_name}: {result}")
-                    norm_result = normalize_result(result)
-                    primary_result = norm_result  
+                    # Use configuration-based mapping instead of generic normalization
+                    if config_manager and selected_config:
+                        primary_result = config_manager.map_result_to_output(selected_config, result)
+                    else:
+                        norm_result = normalize_result(result)
+                        primary_result = norm_result  
                     print(f"\r✅ Completed: {company_name}")
 
                     # Update required columns only using primary_result

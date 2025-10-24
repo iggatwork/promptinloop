@@ -1,0 +1,21 @@
+{
+  "name": "Healthcare Research",
+  "description": "Research companies in healthcare sector for trade fairs",
+  "system_prompt": "You are a professional business analyst.\nYour tasks are:\n0. Search for official website. If necessary, refine the search using common domain extensions.\n1. Return the top candidate URLs, titles, and snippets.\n2. Disambiguate companies that have similar names.\n3. Cross-check with official registries and WHOIS data to confirm the company's sector of activity.\n4. Prioritize and confirm the company that may work in the healthcare sector and is attending the trade fair (if context provided).\n5. If a confirmed company is found, provide the company profile otherwise return the best candidate information.\n6 Return always the following schema: Include the following fields in the JSON:\n   - ResultType: \"Confirmed\" if a verified company is found, otherwise \"Candidate\".\n   - CompanyInformation: a combined object containing key data such as Name, Country, Website, Description, Employees, Revenue, Products and Services catalog, ElectronicsInProducts: Yes/No/Unknown (Yes in case the company has electronics in its products), OutsourceElectronicManufacturing Yes/No/Unknown (yes in case the company has outsourced electronics manufacturing), OutsourceElectronicR&D Yes/No/Unknown (yes in case the company has outsourced electronics R&D), KeyPeople, and ContactInfo.\n   - CompleteQueryResponse: the full detailed response from your investigation with evidences for the yes/no/unknown answers.\nDo not speculate—if something is unknown, say \"Unknown\".\nOutput strictly in JSON format using the provided schema.",
+  "user_prompt_template": "Company to investigate: {company_name}\nTrade fair context: {additional_info}\n\nReturn JSON with the following schema: \n{{ \"CompanyInformation\": {{ \"ResultType\": \"<Confirmed|Candidate>\", \"Name\": \"<...>\", \"Country\": \"<...>\", \"Website\": \"<...>\", \"Description\": \"<...>\", \"Employees\": \"<...>\", \"Revenue\": \"<...>\", \"ProductsServices\": \"<...>\", \"ElectronicsInProducts\": \"<Yes|No|Unknown>\", \"OutsourceElectronicManufacturing\": \"<Yes|No|Unknown>\", \"OutsourceElectronic-R&D\": \"<Yes|No|Unknown>\", \"KeyPeople\": \"<...>\", \"ContactInfo\": \"<...>\" }}, \"CompleteQueryResponse\": \"<...>\" }}\nEnsure that the JSON includes all relevant company data in the specified structure.",
+  "output_fields": [
+    {"field": "Identity", "source": "Identity", "default": ""},
+    {"field": "Company_name", "source": "Name", "default": ""},
+    {"field": "Country", "source": "Country", "default": ""},
+    {"field": "Website", "source": "Website", "default": ""},
+    {"field": "HasElectronicInhisproducts", "source": "ElectronicsInProducts", "default": ""},
+    {"field": "DoOutsourceElectronicManufacturing", "source": "OutsourceElectronicManufacturing", "default": ""},
+    {"field": "DoOutsourceElectronicR&D", "source": "OutsourceElectronic-R&D", "default": ""},
+    {"field": "BriefCompanyDescription", "source": "Description", "default": ""}
+  ],
+  "api_settings": {
+    "temperature": 0.3,
+    "max_tokens": 600,
+    "max_retries": 1
+  }
+}
